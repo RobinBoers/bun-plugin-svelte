@@ -1,8 +1,12 @@
 import { type BuildConfig } from "bun";
 import { strict as assert } from "node:assert";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { CompileOptions, ModuleCompileOptions } from "svelte/compiler";
 
-type OverrideCompileOptions = Pick<CompileOptions, "customElement" | "runes" | "modernAst" | "namespace">;
+const kEmptyObject = Object.create(null);
+
+type OverrideCompileOptions = Pick<CompileOptions, "customElement" | "runes" | "modernAst" | "namespace" | "experimental">;
 export interface SvelteOptions extends Pick<CompileOptions, "runes"> {
   /**
    * Force client-side or server-side generation.
@@ -26,6 +30,48 @@ export interface SvelteOptions extends Pick<CompileOptions, "runes"> {
    * Options to forward to the Svelte compiler.
    */
   compilerOptions?: OverrideCompileOptions;
+}
+
+/**
+ * @internal
+ */
+async function loadSvelteConfig(): Promise<Partial<SvelteOptions>> {
+  const configPaths = ['svelte.config.js', 'svelte.config.mjs', 'svelte.config.ts'];
+  
+  for (const configPath of configPaths) {
+    if (existsSync(configPath)) {
+      try {
+        const config = await import(join(process.cwd(), configPath));
+        const svelteConfig = config.default || config;
+        
+        return {
+          compilerOptions: svelteConfig.compilerOptions || {},
+          development: svelteConfig.development,
+          forceSide: svelteConfig.forceSide,
+        };
+      } catch (error) {
+        console.warn(`Failed to load ${configPath}:`, error);
+      }
+    }
+  }
+  
+  return {};
+}
+
+/**
+ * @internal
+ */
+export async function mergeWithSvelteConfig(pluginOptions: SvelteOptions = kEmptyObject as SvelteOptions): Promise<SvelteOptions> {
+  const configOptions = await loadSvelteConfig();
+  
+  return {
+    ...configOptions,
+    ...pluginOptions,
+    compilerOptions: {
+      ...configOptions.compilerOptions,
+      ...pluginOptions.compilerOptions,
+    },
+  };
 }
 
 /**
@@ -61,7 +107,7 @@ export function validateOptions(options: unknown): asserts options is SvelteOpti
 export function getBaseCompileOptions(pluginOptions: SvelteOptions, config: Partial<BuildConfig>): CompileOptions {
   let {
     development = false,
-    compilerOptions: { customElement, runes, modernAst, namespace } = kEmptyObject as OverrideCompileOptions,
+    compilerOptions: { customElement, runes, modernAst, namespace, experimental } = kEmptyObject as OverrideCompileOptions,
   } = pluginOptions;
   const { minify = false } = config;
 
@@ -90,6 +136,7 @@ export function getBaseCompileOptions(pluginOptions: SvelteOptions, config: Part
     runes,
     modernAst,
     namespace,
+    experimental,
     cssHash({ css }) {
       // same prime number seed used by svelte/compiler.
       // TODO: ensure this provides enough entropy
@@ -131,4 +178,3 @@ function generateSide(pluginOptions: SvelteOptions, config: Partial<BuildConfig>
 }
 
 export const hash = (content: string): string => Bun.hash(content, 5381).toString(36);
-const kEmptyObject = Object.create(null);

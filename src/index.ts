@@ -5,6 +5,7 @@ import {
   getBaseCompileOptions,
   getBaseModuleCompileOptions,
   hash,
+  mergeWithSvelteConfig,
   validateOptions,
   type SvelteOptions,
 } from "./options";
@@ -13,22 +14,22 @@ const kEmptyObject = Object.create(null);
 const virtualNamespace = "bun-svelte";
 
 function SveltePlugin(options: SvelteOptions = kEmptyObject as SvelteOptions): BunPlugin {
-  if (options != null) validateOptions(options);
-
-  /**
-   * import specifier -> CSS source code
-   */
-  const virtualCssModules = new Map<string, VirtualCSSModule>();
-  type VirtualCSSModule = {
-    /** Path to the svelte file whose css this is for */
-    sourcePath: string;
-    /** Source code  */
-    source: string;
-  };
-
   return {
     name: "bun-plugin-svelte",
-    setup(builder) {
+    async setup(builder) {
+      const mergedOptions = await mergeWithSvelteConfig(options);
+      if (mergedOptions != null) validateOptions(mergedOptions);
+
+      /**
+       * import specifier -> CSS source code
+       */
+      const virtualCssModules = new Map<string, VirtualCSSModule>();
+      type VirtualCSSModule = {
+        /** Path to the svelte file whose css this is for */
+        sourcePath: string;
+        /** Source code  */
+        source: string;
+      };
       // resolve "svelte" export conditions
       //
       // FIXME: the dev server does not currently respect bundler configs; it
@@ -44,9 +45,9 @@ function SveltePlugin(options: SvelteOptions = kEmptyObject as SvelteOptions): B
       }
 
       const { config = kEmptyObject as Partial<BuildConfig> } = builder;
-      const baseCompileOptions = getBaseCompileOptions(options ?? (kEmptyObject as Partial<SvelteOptions>), config);
+      const baseCompileOptions = getBaseCompileOptions(mergedOptions ?? (kEmptyObject as Partial<SvelteOptions>), config);
       const baseModuleCompileOptions = getBaseModuleCompileOptions(
-        options ?? (kEmptyObject as Partial<SvelteOptions>),
+        mergedOptions ?? (kEmptyObject as Partial<SvelteOptions>),
         config,
       );
 
